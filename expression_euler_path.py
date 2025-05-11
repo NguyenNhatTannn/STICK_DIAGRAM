@@ -108,32 +108,41 @@ def sort_terms_alphabetically(expr_str):
     return '+'.join(term_to_sorted_str(t) for t in sorted_terms)
 
 # Phân tích biểu thức để kiểm tra khả năng rút gọn
-def should_simplify(expr):
-    if isinstance(expr, sympy.Symbol):
-        return False
+import sympy
+from sympy.parsing.sympy_parser import parse_expr
+from collections import defaultdict
 
-    # HỖ TRỢ And LÀ TOP-LEVEL (quan trọng!)
-    terms = list(expr.args) if isinstance(expr, (sympy.Or, sympy.And)) else [expr]
-    var_occurrences = defaultdict(set)
+def should_simplify(expr,expr_str):
+    var_counts = defaultdict(int)
+    has_negation = False
 
-    for idx, term in enumerate(terms):
-        if isinstance(term, (sympy.And, sympy.Or)):
-            factors = term.args
+    def traverse(e):
+        nonlocal has_negation
+        if isinstance(e, sympy.Symbol):
+            var_counts[str(e)] += 1
+        elif isinstance(e, sympy.Not):
+            arg = e.args[0]
+            has_negation = True
+            if isinstance(arg, sympy.Symbol):
+                var_counts[str(arg)] += 1
+            else:
+                traverse(arg)
         else:
-            factors = [term]
-        for f in factors:
-            if isinstance(f, sympy.Symbol):
-                var_occurrences[str(f)].add(idx)
-            elif isinstance(f, sympy.Not) and isinstance(f.args[0], sympy.Symbol):
-                var_occurrences['~' + str(f.args[0])].add(idx)
+            for arg in e.args:
+                traverse(arg)
 
-    for var in var_occurrences:
-        if var.startswith('~'):
+    traverse(expr)
+
+    if has_negation:
+        return True
+
+    for count in var_counts.values():
+        if count > 1:
             return True
 
-    for occurrences in var_occurrences.values():
-        if len(occurrences) > 1:
-            return True
+    variables = re.findall(r'[A-Za-z]', expr_str)
+    if (len(variables) != len(set(variables))):
+        return True
 
     return False
 
@@ -241,7 +250,7 @@ def simplify_expression(expr_str):
     rhs_logic = rhs.replace('+', '|').replace('*', '&').replace('~', '~')
     transformations = standard_transformations + (implicit_multiplication_application,)
     expr = parse_expr(rhs_logic, local_dict=symbols_dict, transformations=transformations, evaluate=False)
-    if not should_simplify(expr):
+    if not should_simplify(expr,expr_str):
         # Không cần rút gọn
         rename_map = {}
         original = rhs.replace('&', '*').replace('|', '+').replace(' ', '')
@@ -612,7 +621,6 @@ def add_edge_serial_2(g, node, inter_arr, mode):
 #thêm các cạnh song song (parallel edges) giữa một node cho trước với các node khác trong đồ thị g.
 
 def add_edge_parallel_2(g, node, inter_arr):
-    print("inter_arr", inter_arr)
     n1 = node + 'S'                             #DS
     n2 = node + 'D'                             #DD
     outside_node = ''
@@ -627,7 +635,6 @@ def add_edge_parallel_2(g, node, inter_arr):
         if n[0] not in inter_arr and n[0] != node:
             outside_node1.append(n[0])
 
-    print("outside_node", outside_node1)
     p = g.copy()  # Tạo đồ thị trung gian chứa các node có đuôi S và chỉ nối với node có đuôi S và duôi D của chính nó
     for nodee in list(p.nodes()):
         if any(nodee[:-1] == outside for outside in outside_node1):
@@ -641,7 +648,7 @@ def add_edge_parallel_2(g, node, inter_arr):
                         # Nếu *E nối với *D nhưng khác gốc => xóa node *E
                         p.remove_node(nodee)
                         break  # Không cần kiểm tra tiếp
-    print("edges của p", p.edges)
+
     f = g.copy()  # Tạo đồ thị trung gian
     for nodee in list(f.nodes()):
         if any(nodee[:-1] == outside for outside in outside_node1):
@@ -666,8 +673,6 @@ def add_edge_parallel_2(g, node, inter_arr):
 
     node1_degree = p.degree(node1)
     node2_degree = f.degree(node2)
-    print("node1", node1)
-    print("node2", node2)
     if node1_degree < node2_degree:
         s = 1
         g.add_edge(n1, node1)
@@ -1010,7 +1015,6 @@ def create_pmos(g, expression, euler_path):
     while i < len(q):
         create_graph(g, q, i, q[i], 1)
         i += 1
-        print("pmos: ", g.edges())
     return g
 
 def merge_duplicate_nodes(graph, var_mapping):
